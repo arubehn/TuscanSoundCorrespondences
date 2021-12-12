@@ -2,8 +2,12 @@ import re
 from pycldf import Wordlist, StructureDataset
 
 
+"""
+a simple tokenizer suited for the ALT dataset
+"""
 def tokenize(word):
-    tokens = re.findall(".ː?ʲ?", word)
+    tokens = re.findall(".[ː̞ʲ̃'̭]*", word)
+
     assert "".join(tokens) == word
 
     return tokens
