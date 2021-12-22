@@ -2,8 +2,9 @@ import pandas as pd
 import numpy as np
 import re
 from itertools import combinations, product, permutations
-import json
+from nw import nw
 import math
+from pycldf import Dataset
 
 areas = {36: 2,
          37: 3,
@@ -221,53 +222,73 @@ areas = {36: 2,
 
 
 class ShibbolethCalculator(object):
-    def __init__(self, varieties, trs_fp, cost_mat_fp):
+    def __init__(self, varieties, cldf_meta_fp, sim_mat_fp):
         self.varieties = varieties
-        # TODO adjust data import; maybe use pycldf again?
-        self.trs = pd.read_csv(trs_fp, sep='\t')
-        self.trs = self.trs.rename(columns={'Unnamed: 0': 'location'})
-        # TODO get own enc and dec dicts; replace cost matrix with PMI scores
-        self.enc_dict, self.dec_dict, self.dist_mat = leven.init_cost_matrix_weighted(cost_mat_fp)
 
-        # assign IDs to sites
-        self.sites_enc_dict = {}
-        self.sites_dec_dict = {}
-        for site in self.trs.location:
-            site_id = int(re.match("[0-9]+", site)[0])
-            self.sites_enc_dict[site] = site_id
-            self.sites_dec_dict[site_id] = site
+        self.data = Dataset.from_metadata(cldf_meta_fp)
+        self.forms = list(self.data["FormTable"])
+        self.params = list(self.data["ParameterTable"])
+        self.sites = list(self.data["LanguageTable"])
 
-        # set sites as index
-        self.trs = self.trs.set_index("location")
+        self.concepts_enc_dict = {p["Name"]: p["ID"] for p in self.params}
+        self.concepts_dec_dict = {p["ID"]: p["Name"] for p in self.params}
 
-        self.sites = self.trs.index.values
-        self.concepts = self.trs.columns.values
+        self.sites_enc_dict = {s["Name"]: s["ID"] for s in self.sites}
+        self.sites_dec_dict = {s["ID"]: s["Name"] for s in self.sites}
 
-        # assign IDs to concepts (4 digits to make them unique, just in case)
-        self.concepts_enc_dict = {}
-        self.concepts_dec_dict = {}
-        i = 1000
-        for concept in self.trs.iloc[:1, :]:
-            self.concepts_enc_dict[concept] = i
-            self.concepts_dec_dict[i] = concept
-            i += 1
+        self.enc_dict, self.dec_dict, self.sim_mat = self.read_pmi_scores(sim_mat_fp)
 
+        self.trs = pd.DataFrame(index=list(self.sites_dec_dict.keys()), columns=list(self.concepts_dec_dict.keys()))
         self.trs_encoded = self.trs.copy()
 
-        for col in self.trs_encoded.iloc[:, :]:  # we skip the first column with locations
-            self.trs_encoded[col] = [np.array([self.enc_dict[char] for char in trs]) if not pd.isna(
-                trs) else trs for trs in self.trs_encoded[col]]
+        for f in self.forms:
+            site_id = f["Language_ID"]
+            concept_id = f["Parameter_ID"]
+            segments = f["Segments"]
+            self.trs.loc[site_id, concept_id] = segments
+            self.trs_encoded.loc[site_id, concept_id] = [self.enc_dict[x] for x in segments]
 
         self.int_conf_mat = np.zeros(shape=(len(self.enc_dict), len(self.enc_dict)), dtype=int)
         self.ext_conf_mat = np.zeros(shape=(len(self.enc_dict), len(self.enc_dict)), dtype=int)
 
-        self.vars_full_names = [self.sites_dec_dict[var] for var in self.varieties]
-        self.trs_slice = self.trs[self.trs.index.isin(self.vars_full_names)]
-        self.trs_encoded_slice = self.trs_encoded[self.trs_encoded.index.isin(self.vars_full_names)]
+        self.trs_slice = self.trs[self.trs.index.astype(int).isin(self.varieties)]
+        self.trs_encoded_slice = self.trs_encoded[self.trs_encoded.index.astype(int).isin(self.varieties)]
 
-        self.comp_vars_full_names = [var for var in self.sites if self.sites_enc_dict[var] not in self.varieties]
-        self.trs_rest = self.trs[self.trs.index.isin(self.comp_vars_full_names)]
-        self.trs_encoded_rest = self.trs_encoded[self.trs_encoded.index.isin(self.comp_vars_full_names)]
+        self.comp_var_ids = [int(var["ID"]) for var in self.sites if int(var["ID"]) not in self.varieties]
+        self.trs_rest = self.trs[self.trs.index.astype(int).isin(self.comp_var_ids)]
+        self.trs_encoded_rest = self.trs_encoded[self.trs_encoded.index.astype(int).isin(self.comp_var_ids)]
+
+    def read_pmi_scores(self, fp):
+        enc_dict = {}
+        dec_dict = {}
+
+        scores_dict = {}
+
+        with open(fp) as f:
+            for line in f:
+                fields = line.strip().split()
+                if fields[0] == "#" or fields[1] == "#":
+                    continue
+                s1 = fields[0]
+                s2 = fields[1]
+                score = float(fields[2])
+                if s1 not in enc_dict:
+                    idx = len(enc_dict)
+                    enc_dict[s1] = idx
+                    dec_dict[idx] = s1
+                if s2 not in enc_dict:
+                    idx = len(enc_dict)
+                    enc_dict[s2] = idx
+                    dec_dict[idx] = s2
+                scores_dict[(s1, s2)] = score
+
+        score_matrix = np.zeros((len(enc_dict), len(enc_dict)))
+        for pair, score in scores_dict.items():
+            s1, s2 = pair
+            score_matrix[enc_dict[s1], enc_dict[s2]] = score
+
+        return enc_dict, dec_dict, score_matrix
+
 
     def print_rows(self):
         vars_full_names = [self.sites_dec_dict[var] for var in self.varieties]
@@ -280,20 +301,27 @@ class ShibbolethCalculator(object):
             for i, j in permutations(values, 2):
                 # TODO produce NW alignments
                 if not isinstance(i, float) and not isinstance(j, float):
-                    _, _, alignment = leven.leven_compute_align(i, j, self.dist_mat)
-                    for char1, char2 in alignment:
-                        self.int_conf_mat[char1, char2] += 1
+                    alignment = nw(i, j, self.sim_mat, self.enc_dict["-"])
+                    alignment_i = alignment[0]
+                    alignment_j = alignment[1]
+                    for idx in range(len(alignment_i)):
+                        self.int_conf_mat[alignment_i[idx], alignment_j[idx]] += 1
+                    #_, _, alignment = leven.leven_compute_align(i, j, self.dist_mat)
+                    #for char1, char2 in alignment:
+                        #self.int_conf_mat[char1, char2] += 1
 
         # external alignments
-        for index in range(len(self.concepts)):
+        for index in range(len(self.concepts_enc_dict)):
             int_values = self.trs_encoded_slice.iloc[:, index].values
             ext_values = self.trs_encoded_rest.iloc[:, index].values
             for i, j in product(int_values, ext_values):
                 # TODO produce NW alignments
                 if not isinstance(i, float) and not isinstance(j, float):
-                    _, _, alignment = leven.leven_compute_align(i, j, self.dist_mat)
-                    for char1, char2 in alignment:
-                        self.ext_conf_mat[char1, char2] += 1
+                    alignment = nw(i, j, self.sim_mat, self.enc_dict["-"])
+                    alignment_i = alignment[0]
+                    alignment_j = alignment[1]
+                    for idx in range(len(alignment_i)):
+                        self.int_conf_mat[alignment_i[idx], alignment_j[idx]] += 1
 
     def get_probabilities(self, df, invert_axis=False):
         occurrences_per_char = {}
@@ -451,12 +479,13 @@ if __name__ == "__main__":
     samples += ["gianelli_savoia_1_2"]
 
     for sample in samples:
-        with open("data/%s.txt" % sample, "r") as f:
-            v = f.read().split(",")
+        #with open("data/%s.txt" % sample, "r") as f:
+        #    v = f.read().split(",")
 
-        v = [int(num) for num in v]
+        #v = [int(num) for num in v]
+        v = [102, 103, 104]
 
-        t = ShibbolethCalculator(v, "align/transcriptions.tsv", "align/sounddistances_pmi.txt")
+        t = ShibbolethCalculator(v, "./ALT/cldf/Wordlist-metadata.json", "./ALT/PMI_scores.tsv")
         t.align()
         dist = t.calculate_dist(normalize=True)
         repr = t.calculate_repr(normalize=True)
