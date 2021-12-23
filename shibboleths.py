@@ -250,6 +250,9 @@ class ShibbolethCalculator(object):
 
         self.int_conf_mat = np.zeros(shape=(len(self.enc_dict), len(self.enc_dict)), dtype=int)
         self.ext_conf_mat = np.zeros(shape=(len(self.enc_dict), len(self.enc_dict)), dtype=int)
+        """# TODO change back
+        self.int_conf_mat = np.random.randint(100, size=(len(self.enc_dict), len(self.enc_dict)))
+        self.ext_conf_mat = np.random.randint(100, size=(len(self.enc_dict), len(self.enc_dict)))"""
 
         self.trs_slice = self.trs[self.trs.index.astype(int).isin(self.varieties)]
         self.trs_encoded_slice = self.trs_encoded[self.trs_encoded.index.astype(int).isin(self.varieties)]
@@ -289,7 +292,6 @@ class ShibbolethCalculator(object):
 
         return enc_dict, dec_dict, score_matrix
 
-
     def print_rows(self):
         vars_full_names = [self.sites_dec_dict[var] for var in self.varieties]
         print(self.trs[self.trs.index.isin(vars_full_names)])
@@ -299,29 +301,24 @@ class ShibbolethCalculator(object):
         for _, data in self.trs_encoded_slice.iteritems():
             values = data.values
             for i, j in permutations(values, 2):
-                # TODO produce NW alignments
                 if not isinstance(i, float) and not isinstance(j, float):
                     alignment = nw(i, j, self.sim_mat, self.enc_dict["-"])
                     alignment_i = alignment[0]
                     alignment_j = alignment[1]
                     for idx in range(len(alignment_i)):
                         self.int_conf_mat[alignment_i[idx], alignment_j[idx]] += 1
-                    #_, _, alignment = leven.leven_compute_align(i, j, self.dist_mat)
-                    #for char1, char2 in alignment:
-                        #self.int_conf_mat[char1, char2] += 1
 
         # external alignments
         for index in range(len(self.concepts_enc_dict)):
             int_values = self.trs_encoded_slice.iloc[:, index].values
             ext_values = self.trs_encoded_rest.iloc[:, index].values
             for i, j in product(int_values, ext_values):
-                # TODO produce NW alignments
                 if not isinstance(i, float) and not isinstance(j, float):
                     alignment = nw(i, j, self.sim_mat, self.enc_dict["-"])
                     alignment_i = alignment[0]
                     alignment_j = alignment[1]
                     for idx in range(len(alignment_i)):
-                        self.int_conf_mat[alignment_i[idx], alignment_j[idx]] += 1
+                        self.ext_conf_mat[alignment_i[idx], alignment_j[idx]] += 1
 
     def get_probabilities(self, df, invert_axis=False):
         occurrences_per_char = {}
@@ -349,7 +346,6 @@ class ShibbolethCalculator(object):
                                 occurrences_per_char[char] += 1
                             else:
                                 occurrences_per_char[char] = 1
-
 
         probabilities_per_char = {}
         for char in occurrences_per_char:
@@ -389,8 +385,9 @@ class ShibbolethCalculator(object):
         # subtract PMI value for inverted relation; filter out correspondences with negative values
         dist_values = {}
         for pair in dist_per_combination:
-            char1 = pair[1]
-            char2 = pair[-2]
+            chars = re.findall("\[(.+?)]", pair)
+            char1 = chars[0]
+            char2 = chars[1]
             inv_pair = "[%s] -> [%s]" % (char2, char1)
             if dist_per_combination[pair] > 0:
                 if inv_pair in dist_per_combination:
@@ -472,21 +469,24 @@ class ShibbolethCalculator(object):
         except:
             return 0
 
+
 if __name__ == "__main__":
     samples = ["elba", "general_gorgia", "gianelli_savoia_1", "gianelli_savoia_2", "gianelli_savoia_3",
-               "gianelli_savoia_4", "gianelli_savoia_3_4", "pisa_livorno"]
+              "gianelli_savoia_4", "gianelli_savoia_3_4", "pisa_livorno"]
     samples += ["b_B", "d_D", "general_gorgia_contextfree"]
-    samples += ["gianelli_savoia_1_2"]
+    #samples = ["gianelli_savoia_1_2"]
 
     for sample in samples:
-        #with open("data/%s.txt" % sample, "r") as f:
-        #    v = f.read().split(",")
+        with open("./ALT/site_clusters/%s.txt" % sample, "r") as f:
+            v = f.read().split(",")
 
-        #v = [int(num) for num in v]
-        v = [102, 103, 104]
+        v = [int(num) for num in v]
+        # v = [102, 103, 104]
 
         t = ShibbolethCalculator(v, "./ALT/cldf/Wordlist-metadata.json", "./ALT/PMI_scores.tsv")
+        print("Initialized tables.")
         t.align()
+        # print("Finished alignments.")
         dist = t.calculate_dist(normalize=True)
         repr = t.calculate_repr(normalize=True)
         idio = {pair: t.harmonic_mean(dist[pair], repr[pair]) for pair in dist}
@@ -496,7 +496,7 @@ if __name__ == "__main__":
         for k in sorted_keys:
             idio_sorted[k] = idio[k]
 
-        with open("results_refined_repr/%s.txt" % sample, "w") as f:
+        with open("results/%s.txt" % sample, "w") as f:
             f.write("CORR\tDIST\tREPR\tIDIO\n")
             for pair in idio_sorted:
                 pair_dist = dist[pair]
