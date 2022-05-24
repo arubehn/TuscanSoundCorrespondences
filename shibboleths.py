@@ -248,11 +248,12 @@ class ShibbolethCalculator(object):
             self.trs.loc[site_id, concept_id] = segments
             self.trs_encoded.loc[site_id, concept_id] = [self.enc_dict[x] for x in segments]
 
+        # initialize 3 confusion matrices:
+        # one for inside the given cluster (int), one for all varieties outside the cluster (ext),
+        # one for alignments between varieties from inside and outside the cluster (cross)
         self.int_conf_mat = np.zeros(shape=(len(self.enc_dict), len(self.enc_dict)), dtype=int)
         self.ext_conf_mat = np.zeros(shape=(len(self.enc_dict), len(self.enc_dict)), dtype=int)
-        """# TODO change back
-        self.int_conf_mat = np.random.randint(100, size=(len(self.enc_dict), len(self.enc_dict)))
-        self.ext_conf_mat = np.random.randint(100, size=(len(self.enc_dict), len(self.enc_dict)))"""
+        self.cross_conf_mat = np.zeros(shape=(len(self.enc_dict), len(self.enc_dict)), dtype=int)
 
         self.trs_slice = self.trs[self.trs.index.astype(int).isin(self.varieties)]
         self.trs_encoded_slice = self.trs_encoded[self.trs_encoded.index.astype(int).isin(self.varieties)]
@@ -307,8 +308,21 @@ class ShibbolethCalculator(object):
                     alignment_j = alignment[1]
                     for idx in range(len(alignment_i)):
                         self.int_conf_mat[alignment_i[idx], alignment_j[idx]] += 1
+                        self.int_conf_mat[alignment_j[idx], alignment_i[idx]] += 1
 
         # external alignments
+        for _, data in self.trs_encoded_rest.iteritems():
+            values = data.values
+            for i, j in permutations(values, 2):
+                if not isinstance(i, float) and not isinstance(j, float):
+                    alignment = nw(i, j, self.sim_mat, self.enc_dict["-"])
+                    alignment_i = alignment[0]
+                    alignment_j = alignment[1]
+                    for idx in range(len(alignment_i)):
+                        self.ext_conf_mat[alignment_i[idx], alignment_j[idx]] += 1
+                        self.ext_conf_mat[alignment_j[idx], alignment_i[idx]] += 1
+
+        # cross-cluster alignments
         for index in range(len(self.concepts_enc_dict)):
             int_values = self.trs_encoded_slice.iloc[:, index].values
             ext_values = self.trs_encoded_rest.iloc[:, index].values
@@ -318,7 +332,7 @@ class ShibbolethCalculator(object):
                     alignment_i = alignment[0]
                     alignment_j = alignment[1]
                     for idx in range(len(alignment_i)):
-                        self.ext_conf_mat[alignment_i[idx], alignment_j[idx]] += 1
+                        self.cross_conf_mat[alignment_i[idx], alignment_j[idx]] += 1
 
     def get_probabilities(self, df, invert_axis=False):
         occurrences_per_char = {}
@@ -327,7 +341,7 @@ class ShibbolethCalculator(object):
         sum = 0
 
         if invert_axis:
-            for _, col in df.iteritems():  # iterate over rows
+            for _, col in df.iteritems():  # iterate over columns
                 for _, value in col.items():
                     if not isinstance(value, float):
                         for char in value:
@@ -355,8 +369,8 @@ class ShibbolethCalculator(object):
 
     def calculate_dist(self, normalize=False):
         dist_per_combination = {}
-        ext_col_sums = self.ext_conf_mat.sum(axis=0)
-        ext_row_sums = self.ext_conf_mat.sum(axis=1)
+        ext_col_sums = self.cross_conf_mat.sum(axis=0)
+        ext_row_sums = self.cross_conf_mat.sum(axis=1)
         zero_index = self.enc_dict["-"]
         int_prob_distr = self.get_probabilities(self.trs_encoded_slice)
         int_prob_distr[zero_index] = ext_row_sums[zero_index] / sum(ext_row_sums)
@@ -367,7 +381,7 @@ class ShibbolethCalculator(object):
             char_pair = "[%s] -> [%s]" % (self.dec_dict[i], self.dec_dict[j])
             prob_i = ext_prob_distr[i]
             prob_j = int_prob_distr[j]
-            prob_i_j = self.ext_conf_mat[j, i] / sum(ext_row_sums)
+            prob_i_j = self.cross_conf_mat[j, i] / sum(ext_row_sums)
             try:
                 dist = math.log(prob_i_j / (prob_i * prob_j))
                 if not math.isnan(dist):
@@ -433,7 +447,7 @@ class ShibbolethCalculator(object):
         # REPRESENTATIVENESS is only calculated per symbol
         for i in self.dec_dict.keys():
             prob_i = prob_distr[i]
-            prob_i_j = self.int_conf_mat[i, i] / sum(ext_row_sums)
+            prob_i_j = self.ext_conf_mat[i, i] / sum(ext_row_sums)
             try:
                 repr = math.log(prob_i_j / (prob_i ** 2))
                 if math.isnan(repr):
@@ -472,9 +486,11 @@ class ShibbolethCalculator(object):
 
 if __name__ == "__main__":
     samples = ["elba", "general_gorgia", "gianelli_savoia_1", "gianelli_savoia_2", "gianelli_savoia_3",
-              "gianelli_savoia_4", "gianelli_savoia_3_4", "pisa_livorno"]
+              "gianelli_savoia_4", "pisa_livorno"]
     samples += ["b_B", "d_D", "general_gorgia_contextfree"]
-    #samples = ["gianelli_savoia_1_2"]
+    #samples = ["gianelli_savoia_1_2", "gianelli_savoia_3_4"]
+
+    matrices = []
 
     for sample in samples:
         with open("./ALT/site_clusters/%s.txt" % sample, "r") as f:
@@ -486,7 +502,9 @@ if __name__ == "__main__":
         t = ShibbolethCalculator(v, "./ALT/cldf/Wordlist-metadata.json", "./ALT/PMI_scores.tsv")
         print("Initialized tables.")
         t.align()
-        # print("Finished alignments.")
+        print("Finished alignments.")
+        matrices.append((t.int_conf_mat, t.ext_conf_mat, t.cross_conf_mat))
+
         dist = t.calculate_dist(normalize=True)
         repr = t.calculate_repr(normalize=True)
         idio = {pair: t.harmonic_mean(dist[pair], repr[pair]) for pair in dist}
@@ -496,7 +514,7 @@ if __name__ == "__main__":
         for k in sorted_keys:
             idio_sorted[k] = idio[k]
 
-        with open("results/%s.txt" % sample, "w") as f:
+        with open("new_results/%s.txt" % sample, "w") as f:
             f.write("CORR\tDIST\tREPR\tIDIO\n")
             for pair in idio_sorted:
                 pair_dist = dist[pair]
