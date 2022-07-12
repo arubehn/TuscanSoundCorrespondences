@@ -473,7 +473,12 @@ class ShibbolethCalculator(object):
             i = self.dec_dict[i]
             j = self.dec_dict[j]
             char_pair = "[%s] -> [%s]" % (i, j)
-            repr[char_pair] = self.harmonic_mean(int_repr[i], ext_repr[j])
+            if i == "-":
+                repr[char_pair] = ext_repr[j]
+            elif j == "-":
+                repr[char_pair] = int_repr[i]
+            else:
+                repr[char_pair] = self.harmonic_mean(int_repr[i], ext_repr[j])
 
         return repr
 
@@ -485,16 +490,18 @@ class ShibbolethCalculator(object):
 
 
 if __name__ == "__main__":
-    samples = ["elba", "general_gorgia", "gianelli_savoia_1", "gianelli_savoia_2", "gianelli_savoia_3",
-              "gianelli_savoia_4", "pisa_livorno"]
-    samples += ["b_B", "d_D", "general_gorgia_contextfree"]
-    #samples = ["gianelli_savoia_1_2", "gianelli_savoia_3_4"]
+    #samples = ["elba", "general_gorgia", "gianelli_savoia_1", "gianelli_savoia_2", "gianelli_savoia_3",
+    #          "gianelli_savoia_4", "pisa_livorno"]
+    #samples += ["b_B", "d_D", "general_gorgia_contextfree"]
+    samples = ["gianelli_savoia_1_2", "gianelli_savoia_3_4"]
 
-    matrices = []
+    #matrices = []
 
     for sample in samples:
         with open("./ALT/site_clusters/%s.txt" % sample, "r") as f:
             v = f.read().split(",")
+
+        print(f"Loaded clusters for {sample}.")
 
         v = [int(num) for num in v]
         # v = [102, 103, 104]
@@ -503,7 +510,7 @@ if __name__ == "__main__":
         print("Initialized tables.")
         t.align()
         print("Finished alignments.")
-        matrices.append((t.int_conf_mat, t.ext_conf_mat, t.cross_conf_mat))
+        #matrices.append((t.int_conf_mat, t.ext_conf_mat, t.cross_conf_mat))
 
         dist = t.calculate_dist(normalize=True)
         repr = t.calculate_repr(normalize=True)
