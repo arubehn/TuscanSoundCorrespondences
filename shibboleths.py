@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import re
+import os
 from itertools import combinations, product, permutations
 from nw import nw
 import math
@@ -241,12 +242,19 @@ class ShibbolethCalculator(object):
         self.trs = pd.DataFrame(index=list(self.sites_dec_dict.keys()), columns=list(self.concepts_dec_dict.keys()))
         self.trs_encoded = self.trs.copy()
 
+        self.frequencies = {}
+
         for f in self.forms:
             site_id = f["Language_ID"]
             concept_id = f["Parameter_ID"]
             segments = f["Segments"]
+            for seg in segments:
+                if seg in self.frequencies:
+                    self.frequencies[seg] += 1
+                else:
+                    self.frequencies[seg] = 1
             self.trs.loc[site_id, concept_id] = segments
-            self.trs_encoded.loc[site_id, concept_id] = [self.enc_dict[x] for x in segments]
+            self.trs_encoded.loc[site_id, concept_id] = [self.enc_dict[x] for x in segments if x != "_"]
 
         # initialize 3 confusion matrices:
         # one for inside the given cluster (int), one for all varieties outside the cluster (ext),
@@ -298,10 +306,15 @@ class ShibbolethCalculator(object):
         print(self.trs[self.trs.index.isin(vars_full_names)])
 
     def align(self):
-        # internal alignments
+        # internal alignments - including self alignments
         for _, data in self.trs_encoded_slice.iteritems():
             values = data.values
-            for i, j in permutations(values, 2):
+            for val in values:  # self alignment
+                if isinstance(val, float):
+                    continue
+                for i in val:
+                    self.int_conf_mat[i, i] += 1
+            for i, j in permutations(values, 2):  # pairwise alignments
                 if not isinstance(i, float) and not isinstance(j, float):
                     alignment = nw(i, j, self.sim_mat, self.enc_dict["-"])
                     alignment_i = alignment[0]
@@ -313,6 +326,11 @@ class ShibbolethCalculator(object):
         # external alignments
         for _, data in self.trs_encoded_rest.iteritems():
             values = data.values
+            for val in values:  # self alignment
+                if isinstance(val, float):
+                    continue
+                for i in val:
+                    self.ext_conf_mat[i, i] += 1
             for i, j in permutations(values, 2):
                 if not isinstance(i, float) and not isinstance(j, float):
                     alignment = nw(i, j, self.sim_mat, self.enc_dict["-"])
@@ -369,24 +387,34 @@ class ShibbolethCalculator(object):
 
     def calculate_dist(self, normalize=False):
         dist_per_combination = {}
-        ext_col_sums = self.cross_conf_mat.sum(axis=0)
-        ext_row_sums = self.cross_conf_mat.sum(axis=1)
-        zero_index = self.enc_dict["-"]
-        int_prob_distr = self.get_probabilities(self.trs_encoded_slice)
-        int_prob_distr[zero_index] = ext_row_sums[zero_index] / sum(ext_row_sums)
-        ext_prob_distr = self.get_probabilities(self.trs_encoded_rest)
-        ext_prob_distr[zero_index] = ext_col_sums[zero_index] / sum(ext_col_sums)
-        # ASSUMPTION: ext [i] changes to internal [j]
+        col_sums = self.cross_conf_mat.sum(axis=0)
+        row_sums = self.cross_conf_mat.sum(axis=1)
+        probs = self.cross_conf_mat / np.sum(self.cross_conf_mat)
+        marginal_probs_rows = row_sums / np.sum(row_sums)
+        marginal_probs_cols = col_sums / np.sum(col_sums)
+
+        print(np.sum(probs))
+        print(np.sum(marginal_probs_cols))
+        print(np.sum(marginal_probs_rows))
+
+        #zero_index = self.enc_dict["-"]
+        #int_prob_distr = self.get_probabilities(self.trs_encoded_slice)
+        #int_prob_distr[zero_index] = ext_row_sums[zero_index] / sum(ext_row_sums)
+        #ext_prob_distr = self.get_probabilities(self.trs_encoded_rest)
+        #ext_prob_distr[zero_index] = ext_col_sums[zero_index] / sum(ext_col_sums)
+        # ASSUMPTION: internal [i] corresponds to external [j]
         for i, j in permutations(self.dec_dict.keys(), 2):
-            char_pair = "[%s] -> [%s]" % (self.dec_dict[i], self.dec_dict[j])
-            prob_i = ext_prob_distr[i]
-            prob_j = int_prob_distr[j]
-            prob_i_j = self.cross_conf_mat[j, i] / sum(ext_row_sums)
+            char_pair = "[%s] : [%s]" % (self.dec_dict[i], self.dec_dict[j])
+            if char_pair == "[-] : [g]":
+                print("breakpoint")
+            prob_i = marginal_probs_rows[i]
+            prob_j = marginal_probs_cols[j]
+            prob_i_j = probs[i, j]
             try:
                 dist = math.log(prob_i_j / (prob_i * prob_j))
                 if not math.isnan(dist):
                     if normalize:
-                        n_dist = dist / (- math.log2(prob_i_j))
+                        n_dist = dist / (- math.log(prob_i_j))
                         dist_per_combination[char_pair] = n_dist
                     else:
                         dist_per_combination[char_pair] = dist
@@ -402,7 +430,7 @@ class ShibbolethCalculator(object):
             chars = re.findall("\[(.+?)]", pair)
             char1 = chars[0]
             char2 = chars[1]
-            inv_pair = "[%s] -> [%s]" % (char2, char1)
+            inv_pair = "[%s] : [%s]" % (char2, char1)
             if dist_per_combination[pair] > 0:
                 if inv_pair in dist_per_combination:
                     dist_new = dist_per_combination[pair] - dist_per_combination[inv_pair]
@@ -415,21 +443,25 @@ class ShibbolethCalculator(object):
 
     def calculate_int_repr(self, normalize=False):
         repr_per_combination = {}
-        int_row_sums = self.int_conf_mat.sum(axis=1)
-        zero_index = self.enc_dict["-"]
-        prob_distr = self.get_probabilities(self.trs_encoded_slice)
-        prob_distr[zero_index] = int_row_sums[zero_index] / sum(int_row_sums)
+
+        probs = self.int_conf_mat / np.sum(self.int_conf_mat)
+        sums = self.int_conf_mat.sum(axis=1)
+        marginal_probs = sums / np.sum(sums)
+
+        # zero_index = self.enc_dict["-"]
+        # prob_distr = self.get_probabilities(self.trs_encoded_slice)
+        # prob_distr[zero_index] = int_row_sums[zero_index] / sum(int_row_sums)
         # REPRESENTATIVENESS is only calculated per symbol
         for i in self.dec_dict.keys():
-            prob_i = prob_distr[i]
-            prob_i_j = self.int_conf_mat[i, i] / sum(int_row_sums)
+            prob_i = marginal_probs[i]
+            prob_i_j = probs[i, i]
             try:
                 repr = math.log(prob_i_j / (prob_i ** 2))
                 if math.isnan(repr):
                     repr_per_combination[self.dec_dict[i]] = 0
                 else:
                     if normalize:
-                        n_repr = repr / (- math.log2(prob_i_j))
+                        n_repr = repr / (- math.log(prob_i_j))
                         repr_per_combination[self.dec_dict[i]] = n_repr
                     else:
                         repr_per_combination[self.dec_dict[i]] = repr
@@ -440,21 +472,22 @@ class ShibbolethCalculator(object):
 
     def calculate_ext_repr(self, normalize=False):
         repr_per_combination = {}
-        ext_row_sums = self.ext_conf_mat.sum(axis=1)
-        zero_index = self.enc_dict["-"]
-        prob_distr = self.get_probabilities(self.trs_encoded_slice)
-        prob_distr[zero_index] = ext_row_sums[zero_index] / sum(ext_row_sums)
+
+        probs = self.ext_conf_mat / np.sum(self.ext_conf_mat)
+        sums = self.ext_conf_mat.sum(axis=1)
+        marginal_probs = sums / np.sum(sums)
+
         # REPRESENTATIVENESS is only calculated per symbol
         for i in self.dec_dict.keys():
-            prob_i = prob_distr[i]
-            prob_i_j = self.ext_conf_mat[i, i] / sum(ext_row_sums)
+            prob_i = marginal_probs[i]
+            prob_i_j = probs[i, i]
             try:
                 repr = math.log(prob_i_j / (prob_i ** 2))
                 if math.isnan(repr):
                     repr_per_combination[self.dec_dict[i]] = 0
                 else:
                     if normalize:
-                        n_repr = repr / (- math.log2(prob_i_j))
+                        n_repr = repr / (- math.log(prob_i_j))
                         repr_per_combination[self.dec_dict[i]] = n_repr
                     else:
                         repr_per_combination[self.dec_dict[i]] = repr
@@ -472,7 +505,7 @@ class ShibbolethCalculator(object):
         for i, j in permutations(self.dec_dict.keys(), 2):
             i = self.dec_dict[i]
             j = self.dec_dict[j]
-            char_pair = "[%s] -> [%s]" % (i, j)
+            char_pair = "[%s] : [%s]" % (i, j)
             if i == "-":
                 repr[char_pair] = ext_repr[j]
             elif j == "-":
@@ -488,12 +521,15 @@ class ShibbolethCalculator(object):
         except:
             return 0
 
+    def get_frequencies(self):
+        return self.frequencies
+
 
 if __name__ == "__main__":
-    #samples = ["elba", "general_gorgia", "gianelli_savoia_1", "gianelli_savoia_2", "gianelli_savoia_3",
-    #          "gianelli_savoia_4", "pisa_livorno"]
-    #samples += ["b_B", "d_D", "general_gorgia_contextfree"]
-    samples = ["gianelli_savoia_1_2", "gianelli_savoia_3_4"]
+    samples = ["elba", "general_gorgia", "gianelli_savoia_1", "gianelli_savoia_2", "gianelli_savoia_3",
+              "gianelli_savoia_4", "pisa_livorno"]
+    samples += ["b_B", "d_D", "general_gorgia_contextfree"]
+    samples += ["gianelli_savoia_1_2", "gianelli_savoia_3_4"]
 
     #matrices = []
 
@@ -507,6 +543,7 @@ if __name__ == "__main__":
         # v = [102, 103, 104]
 
         t = ShibbolethCalculator(v, "./ALT/cldf/Wordlist-metadata.json", "./ALT/PMI_scores.tsv")
+        frequencies = t.get_frequencies()
         print("Initialized tables.")
         t.align()
         print("Finished alignments.")
@@ -521,10 +558,53 @@ if __name__ == "__main__":
         for k in sorted_keys:
             idio_sorted[k] = idio[k]
 
-        with open("new_results/%s.txt" % sample, "w") as f:
-            f.write("CORR\tDIST\tREPR\tIDIO\n")
-            for pair in idio_sorted:
-                pair_dist = dist[pair]
-                pair_repr = repr[pair]
-                pair_idio = idio_sorted[pair]
-                f.write("%s\t%.3f\t%.3f\t%.3f\n" % (pair, pair_dist, pair_repr, pair_idio))
+        with open("new_results/all/%s.txt" % sample, "w") as f:
+            with open("new_results/filtered/%s.txt" % sample, "w") as f_filt:
+                f.write("CORR\tDIST\tREPR\tIDIO\tFREQ\n")
+                f_filt.write("CORR\tDIST\tREPR\tIDIO\tFREQ\n")
+                for pair in idio_sorted:
+                    sound1, sound2 = pair.split(" : ")
+                    sound1 = sound1[1:-1]
+                    sound2 = sound2[1:-1]
+                    freq1 = frequencies[sound1] if sound1 in frequencies else 0
+                    freq2 = frequencies[sound2] if sound2 in frequencies else 0
+                    pair_dist = dist[pair]
+                    pair_repr = repr[pair]
+                    pair_idio = idio_sorted[pair]
+                    f.write("%s\t%.3f\t%.3f\t%.3f\t%i|%i\n" % (pair, pair_dist, pair_repr, pair_idio, freq1, freq2))
+                    if (freq1 > 50 or sound1 == "-") and (freq2 > 50 or sound2 == "-"):
+                        f_filt.write("%s\t%.3f\t%.3f\t%.3f\t%i|%i\n" % (pair, pair_dist, pair_repr, pair_idio, freq1, freq2))
+
+        try:
+            target_dir = f"conf_matrices/{sample}"
+            os.mkdir(target_dir)
+            np.save(target_dir + "/int_conf_mat.npy", t.int_conf_mat)
+            np.save(target_dir + "/ext_conf_mat.npy", t.ext_conf_mat)
+            np.save(target_dir + "/cross_conf_mat.npy", t.cross_conf_mat)
+        except OSError as er:
+            print(er)
+
+    """
+
+    v = [101, 102, 103]
+
+    t = ShibbolethCalculator(v, "./ALT/dummy-cldf/Wordlist-metadata.json", "./ALT/PMI_scores.tsv")
+    t.align()
+
+    dist = t.calculate_dist(normalize=True)
+    repr = t.calculate_repr(normalize=True)
+    idio = {pair: t.harmonic_mean(dist[pair], repr[pair]) for pair in dist}
+
+    sorted_keys = sorted(idio, key=idio.get, reverse=True)
+    idio_sorted = {}
+    for k in sorted_keys:
+        idio_sorted[k] = idio[k]
+
+    with open("dummy_results_new.txt", "w") as f:
+        f.write("CORR\tDIST\tREPR\tIDIO\n")
+        for pair in idio_sorted:
+            pair_dist = dist[pair]
+            pair_repr = repr[pair]
+            pair_idio = idio_sorted[pair]
+            f.write("%s\t%.3f\t%.3f\t%.3f\n" % (pair, pair_dist, pair_repr, pair_idio))
+"""
