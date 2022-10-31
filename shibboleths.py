@@ -301,6 +301,21 @@ class ShibbolethCalculator(object):
 
         return enc_dict, dec_dict, score_matrix
 
+    def read_conf_matrices_from_files(self, file_directory):
+        try:
+            self.cross_conf_mat = np.load(file_directory + "/cross_conf_mat.npy")
+            self.int_conf_mat = np.load(file_directory + "/int_conf_mat.npy")
+            self.ext_conf_mat = np.load(file_directory + "/ext_conf_mat.npy")
+        except:
+            print("Could not load confusion matrices from file. Re-aligning...")
+            self.reset_matrices()
+            self.align()
+
+    def reset_matrices(self):
+        self.int_conf_mat = np.zeros(shape=(len(self.enc_dict), len(self.enc_dict)), dtype=int)
+        self.ext_conf_mat = np.zeros(shape=(len(self.enc_dict), len(self.enc_dict)), dtype=int)
+        self.cross_conf_mat = np.zeros(shape=(len(self.enc_dict), len(self.enc_dict)), dtype=int)
+
     def print_rows(self):
         vars_full_names = [self.sites_dec_dict[var] for var in self.varieties]
         print(self.trs[self.trs.index.isin(vars_full_names)])
@@ -526,10 +541,11 @@ class ShibbolethCalculator(object):
 
 
 if __name__ == "__main__":
-    samples = ["elba", "general_gorgia", "gianelli_savoia_1", "gianelli_savoia_2", "gianelli_savoia_3",
-              "gianelli_savoia_4", "pisa_livorno"]
-    samples += ["b_B", "d_D", "general_gorgia_contextfree"]
-    samples += ["gianelli_savoia_1_2", "gianelli_savoia_3_4"]
+    #samples = ["elba", "general_gorgia", "gianelli_savoia_1", "gianelli_savoia_2", "gianelli_savoia_3",
+    #          "gianelli_savoia_4", "pisa_livorno"]
+    #samples += ["b_B", "d_D", "general_gorgia_contextfree"]
+    samples = ["gianelli_savoia_1_2", "gianelli_savoia_3_4", "gianelli_savoia_1", "gianelli_savoia_2", "gianelli_savoia_3",
+               "gianelli_savoia_4"]
 
     #matrices = []
 
@@ -545,7 +561,8 @@ if __name__ == "__main__":
         t = ShibbolethCalculator(v, "./ALT/cldf/Wordlist-metadata.json", "./ALT/PMI_scores.tsv")
         frequencies = t.get_frequencies()
         print("Initialized tables.")
-        t.align()
+        t.read_conf_matrices_from_files(f"./conf_matrices/{sample}")
+        #t.align()
         print("Finished alignments.")
         #matrices.append((t.int_conf_mat, t.ext_conf_mat, t.cross_conf_mat))
 
@@ -553,28 +570,34 @@ if __name__ == "__main__":
         repr = t.calculate_repr(normalize=True)
         idio = {pair: t.harmonic_mean(dist[pair], repr[pair]) for pair in dist}
 
-        sorted_keys = sorted(idio, key=idio.get, reverse=True)
-        idio_sorted = {}
+        raw_dist = t.calculate_dist(normalize=False)
+        raw_repr = t.calculate_repr(normalize=False)
+        raw_idio = {pair: t.harmonic_mean(raw_dist[pair], raw_repr[pair]) for pair in raw_dist}
+
+        sorted_keys = sorted(raw_idio, key=raw_idio.get, reverse=True)
+        raw_idio_sorted = {}
         for k in sorted_keys:
-            idio_sorted[k] = idio[k]
+            raw_idio_sorted[k] = raw_idio[k]
 
-        with open("new_results/all/%s.txt" % sample, "w") as f:
-            with open("new_results/filtered/%s.txt" % sample, "w") as f_filt:
-                f.write("CORR\tDIST\tREPR\tIDIO\tFREQ\n")
-                f_filt.write("CORR\tDIST\tREPR\tIDIO\tFREQ\n")
-                for pair in idio_sorted:
-                    sound1, sound2 = pair.split(" : ")
-                    sound1 = sound1[1:-1]
-                    sound2 = sound2[1:-1]
-                    freq1 = frequencies[sound1] if sound1 in frequencies else 0
-                    freq2 = frequencies[sound2] if sound2 in frequencies else 0
-                    pair_dist = dist[pair]
-                    pair_repr = repr[pair]
-                    pair_idio = idio_sorted[pair]
-                    f.write("%s\t%.3f\t%.3f\t%.3f\t%i|%i\n" % (pair, pair_dist, pair_repr, pair_idio, freq1, freq2))
-                    if (freq1 > 50 or sound1 == "-") and (freq2 > 50 or sound2 == "-"):
-                        f_filt.write("%s\t%.3f\t%.3f\t%.3f\t%i|%i\n" % (pair, pair_dist, pair_repr, pair_idio, freq1, freq2))
+        with open("new_results/unnormalized/%s.txt" % sample, "w") as f:
+            # with open("new_results/filtered/%s.txt" % sample, "w") as f_filt:
+            f.write("CORR\tDIST\tREPR\tIDIO\tIDIO_UNNORMALIZED\tFREQ\n")
+            # f_filt.write("CORR\tDIST\tREPR\tIDIO\tFREQ\n")
+            for pair in raw_idio_sorted:
+                sound1, sound2 = pair.split(" : ")
+                sound1 = sound1[1:-1]
+                sound2 = sound2[1:-1]
+                freq1 = frequencies[sound1] if sound1 in frequencies else 0
+                freq2 = frequencies[sound2] if sound2 in frequencies else 0
+                pair_dist = dist[pair]
+                pair_repr = repr[pair]
+                pair_idio = idio[pair]
+                pair_raw_idio = raw_idio[pair]
+                f.write("%s\t%.3f\t%.3f\t%.3f\t%.3f\t%i|%i\n" % (pair, pair_dist, pair_repr, pair_idio, pair_raw_idio, freq1, freq2))
+                #if (freq1 > 50 or sound1 == "-") and (freq2 > 50 or sound2 == "-"):
+                 #   f_filt.write("%s\t%.3f\t%.3f\t%.3f\t%i|%i\n" % (pair, pair_dist, pair_repr, pair_idio, freq1, freq2))
 
+"""
         try:
             target_dir = f"conf_matrices/{sample}"
             os.mkdir(target_dir)
@@ -584,7 +607,7 @@ if __name__ == "__main__":
         except OSError as er:
             print(er)
 
-    """
+    
 
     v = [101, 102, 103]
 
