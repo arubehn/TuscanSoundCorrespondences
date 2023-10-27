@@ -1,11 +1,18 @@
 import re
-from pycldf import Wordlist, StructureDataset
+from pycldf import Wordlist
 
 
 """
-a simple tokenizer suited for the ALT dataset
+This preprocessing script converts the raw ALT data to the standardized dataset
+according to the CLDF initiative. 
 """
+
+
 def tokenize(word):
+    """
+    a simple greedy tokenizer suited for the ALT dataset
+    :word: the word to be tokenized
+    """
     tokens = re.findall(".[ː̞ʲ̃'̭]*", word)
 
     assert "".join(tokens) == word
@@ -13,13 +20,15 @@ def tokenize(word):
     return tokens
 
 
-"""
-read the data from a csv file, return forms, languages and parameters as required by the CLDF standard
-"""
-def read_data(fp):
+def read_data(fp="../../../ALT/raw/ALT-standardized_forms.csv"):
+    """
+    read the data from a csv file, return forms, languages and parameters as required by the CLDF standard
+    :param fp: the path to the raw csv file
+    :return: CLDF-compatible forms, languages, and parameters
+    """
     forms, params, langs = [], [], []
     word_id = 10000
-    with open("ALT/raw/ALT-standardized_forms.csv") as f:
+    with open(fp) as f:
         for i, line in enumerate(f):
             fields = line.strip().split(",")
             if fields[0] == "":
@@ -47,6 +56,14 @@ def read_data(fp):
 
 
 def write_cldf(forms, params, langs, output_dir="./ALT/cldf"):
+    """
+    write data in CLDF format to a given directory.
+    :param forms: the FormTable
+    :param params: the ParameterTable (i.e. the concepts)
+    :param langs: the LanguageTable
+    :param output_dir: the output directory
+    :return:
+    """
     dataset = Wordlist.in_dir(output_dir)
     dataset.add_component("ParameterTable")
     dataset.add_component("LanguageTable")

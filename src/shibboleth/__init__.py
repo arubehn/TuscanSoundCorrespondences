@@ -1,0 +1,1 @@
+from shibboleth.shibboleths import ShibbolethCalculator
