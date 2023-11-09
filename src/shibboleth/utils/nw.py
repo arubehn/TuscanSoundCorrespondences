@@ -1,6 +1,9 @@
 def nw(seq1, seq2, sim_matrix, gap_index):
     """
-    an implementation of the Needleman-Wunsch algorithm for pairwise alignment.
+    An implementation of the Needleman-Wunsch algorithm for pairwise alignment.
+    This method is a "translation" of a Java implementation of NW for linguistic purposes written by Johannes Dellert:
+    https://github.com/jdellert/iwsa/blob/master/src/main/java/de/jdellert/iwsa/align/NeedlemanWunschAlgorithm.java
+
     :param seq1: the first sequence to be aligned
     :param seq2: the second sequence to be aligned
     :param sim_matrix: a similarity matrix over all relevant sounds
