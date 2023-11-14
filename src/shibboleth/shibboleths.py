@@ -1,15 +1,17 @@
 import pandas as pd
 import numpy as np
 import re
-from itertools import product, permutations
+from itertools import product, permutations, combinations
 from shibboleth.utils.nw import nw
 import math
 from shibboleth.utils.io import *
+from lingpy import Wordlist, Multiple, Alignments
+from collections import defaultdict
 
 
 # TODO re-integrate function for caching confusion matrices
 class ShibbolethCalculator(object):
-    def __init__(self, varieties, cldf_meta_fp, sim_mat_fp):
+    def __init__(self, varieties, data_fp, skip_concepts=None, skip_sites=None):
         """
         initialize the calculator class; defining the cluster of varieties in question,
         loading in the lexical data, and providing a similarity matrix over all sounds for constructing alignments.
@@ -17,9 +19,55 @@ class ShibbolethCalculator(object):
         :param cldf_meta_fp: the filepath to the CLDF metadata file corresponding to the dataset
         :param sim_mat_fp: the filepath to retrieve the similarity matrix for sound pairs from
         """
-        # store the defined cluster of varieties
-        self.varieties = varieties
+        # TODO make more flexible (aka pass down args and parse them)
+        # parse arguments
+        if skip_concepts is None:
+            self.skip_concept = []
+        else:
+            self.skip_concept = skip_concepts
 
+        if skip_sites is None:
+            self.skip_sites = []
+        else:
+            self.skip_sites = skip_sites
+
+        # load lexical data as wordlist
+        self.data = Wordlist(data_fp)
+
+        # store defined variety cluster by given matching strategy
+        # TODO enable passing down different matching strategies
+        self.varieties = []
+        for var_in_data in self.data.cols:
+            for given_var in varieties:
+                if var_in_data.startswith(given_var):
+                    self.varieties.append(var_in_data)
+                    continue
+
+        # assign an integer id to each sound and keep track of the global frequencies of each sound
+        self.frequencies = defaultdict(int)
+        next_token_id = 1
+        self.enc_dict = {"-": 0}
+        self.dec_dict = {0: "-"}
+
+        for _, tokens in self.data.iter_rows("tokens"):
+            for token in tokens:
+                self.frequencies[token] += 1
+                if token not in self.enc_dict:
+                    self.enc_dict[token] = next_token_id
+                    self.dec_dict[next_token_id] = token
+                    next_token_id += 1
+
+        alphabet_size = len(self.enc_dict)
+
+        # initialize 3 confusion matrices:
+        # one for inside the given cluster (int), one for all varieties outside the cluster (ext),
+        # one for alignments between varieties from inside and outside the cluster (cross).
+        # IMPORTANT: 'int' and 'ext' matrices must be symmetric, while 'cross' matrix is directed!
+        self.int_conf_mat = np.zeros(shape=(alphabet_size, alphabet_size), dtype=int)
+        self.ext_conf_mat = np.zeros(shape=(alphabet_size, alphabet_size), dtype=int)
+        self.cross_conf_mat = np.zeros(shape=(alphabet_size, alphabet_size), dtype=int)
+
+        """
         # load lexical data
         self.forms, self.params, self.sites = load_cldf_data(cldf_meta_fp)
 
@@ -42,7 +90,7 @@ class ShibbolethCalculator(object):
         self.form_matrix_encoded = self.form_matrix.copy()
 
         # keep track of the global frequencies of each sound
-        self.frequencies = {}
+        self.frequencies = defaultdict(int)
 
         # populate form matrices
         for f in self.forms:
@@ -50,10 +98,7 @@ class ShibbolethCalculator(object):
             concept_id = f["Parameter_ID"]
             segments = f["Segments"]
             for seg in segments:
-                if seg in self.frequencies:
-                    self.frequencies[seg] += 1
-                else:
-                    self.frequencies[seg] = 1
+                self.frequencies[seg] += 1
             self.form_matrix.loc[site_id, concept_id] = segments
             self.form_matrix_encoded.loc[site_id, concept_id] = [self.enc_dict[x] for x in segments if x != "_"]
 
@@ -72,66 +117,73 @@ class ShibbolethCalculator(object):
         self.comp_var_ids = [int(var["ID"]) for var in self.sites if int(var["ID"]) not in self.varieties]
         self.ext_form_matrix = self.form_matrix[self.form_matrix.index.astype(int).isin(self.comp_var_ids)]
         self.ext_form_matrix_encoded = self.form_matrix_encoded[self.form_matrix_encoded.index.astype(int).isin(self.comp_var_ids)]
-
-    def print_rows(self):
         """
-        convenience method for debugging; prints all the forms pertaining to the defined site cluster
-        :return:
-        """
-        vars_full_names = [self.sites_dec_dict[var] for var in self.varieties]
-        print(self.form_matrix[self.form_matrix.index.isin(vars_full_names)])
 
     def align(self):
         """
-        construct pairwise alignments for all pairs in (int x ext), (int x int), (ext x ext)
-        under the same concept, where int and ext refer to the sets of varieties inside and outside
-        the defined clusters.
+        construct multiple alignments for all cognate sets.
         """
-        # internal alignments - including self alignments
-        for _, data in self.int_form_matrix_encoded.iteritems():
-            values = data.values
-            for val in values:  # self alignment
-                if isinstance(val, float):
-                    continue
-                for i in val:
-                    self.int_conf_mat[i, i] += 1
-            for i, j in permutations(values, 2):  # pairwise alignments
-                if not isinstance(i, float) and not isinstance(j, float):
-                    alignment = nw(i, j, self.sim_mat, self.enc_dict["-"])
-                    alignment_i = alignment[0]
-                    alignment_j = alignment[1]
-                    for idx in range(len(alignment_i)):
-                        self.int_conf_mat[alignment_i[idx], alignment_j[idx]] += 1
-                        self.int_conf_mat[alignment_j[idx], alignment_i[idx]] += 1
+        self.data.renumber("concept", "cogid")
+        alms = Alignments(self.data, ref="cogid", transcription="tokens")
+        alms.align()
+        self.data = alms
 
-        # external alignments
-        for _, data in self.ext_form_matrix_encoded.iteritems():
-            values = data.values
-            for val in values:  # self alignment
-                if isinstance(val, float):
-                    continue
-                for i in val:
-                    self.ext_conf_mat[i, i] += 1
-            for i, j in permutations(values, 2):
-                if not isinstance(i, float) and not isinstance(j, float):
-                    alignment = nw(i, j, self.sim_mat, self.enc_dict["-"])
-                    alignment_i = alignment[0]
-                    alignment_j = alignment[1]
-                    for idx in range(len(alignment_i)):
-                        self.ext_conf_mat[alignment_i[idx], alignment_j[idx]] += 1
-                        self.ext_conf_mat[alignment_j[idx], alignment_i[idx]] += 1
+    def count_phonetic_correspondences(self):
+        # if no alignments are found in the data, generate alignments
+        if "alignment" not in self.data.columns:
+            self.align()
 
-        # cross-cluster alignments
-        for index in range(len(self.concepts_enc_dict)):
-            int_values = self.int_form_matrix_encoded.iloc[:, index].values
-            ext_values = self.ext_form_matrix_encoded.iloc[:, index].values
-            for i, j in product(int_values, ext_values):
-                if not isinstance(i, float) and not isinstance(j, float):
-                    alignment = nw(i, j, self.sim_mat, self.enc_dict["-"])
-                    alignment_i = alignment[0]
-                    alignment_j = alignment[1]
-                    for idx in range(len(alignment_i)):
-                        self.cross_conf_mat[alignment_i[idx], alignment_j[idx]] += 1
+        # get indices corresponding to the site and the alignment columns
+        site_idx = self.data.header.get("doculect", -1)
+        alignment_idx = self.data.header.get("alignment", -1)
+
+        if site_idx < 0 or alignment_idx < 0:
+            raise ValueError
+
+        # iterate over concepts (=cognate sets)
+        for concept in self.data.rows:
+            if concept in self.skip_concept:
+                continue
+            # get all form IDs corresponding to the concept
+            form_ids = self.data.get_list(row=concept, flat=True)
+            # retrieve data for all possible form pairs within the concept
+            for id1, id2 in combinations(form_ids, 2):
+                form1 = self.data[id1]
+                form2 = self.data[id2]
+
+                # retrieve sites corresponding to the forms
+                site1 = form1[site_idx]
+                site2 = form2[site_idx]
+
+                if site1 in self.skip_sites or site2 in self.skip_sites:
+                    continue
+
+                # retrieve the confusion matrix to write to
+                matrix_is_symmetric = True
+                if site1 in self.varieties and site2 in self.varieties:
+                    relevant_matrix = self.int_conf_mat
+                elif site1 not in self.varieties and site2 not in self.varieties:
+                    relevant_matrix = self.ext_conf_mat
+                else:
+                    relevant_matrix = self.cross_conf_mat
+                    matrix_is_symmetric = False
+                    # make sure that 'form1' is inside the defined cluster and 'form2' is outside -
+                    # flip it around if it is the other way
+                    if site2 in self.varieties:
+                        form1, form2 = form2, form1
+
+                # iterate over the alignments and store counts to the respective matrix
+                alm1 = form1[alignment_idx]
+                alm2 = form2[alignment_idx]
+
+                for token1, token2 in zip(alm1, alm2):
+                    idx1 = self.enc_dict[token1]
+                    idx2 = self.enc_dict[token2]
+                    relevant_matrix[idx1][idx2] += 1
+                    # make sure that the internal and external matrix stay symmetric by counting the correspondence
+                    # in both directions
+                    if matrix_is_symmetric:
+                        relevant_matrix[idx2][idx1] += 1
 
     def get_probabilities(self, df, invert_axis=False):
         """
@@ -197,8 +249,6 @@ class ShibbolethCalculator(object):
         # ASSUMPTION: internal [i] corresponds to external [j]
         for i, j in permutations(self.dec_dict.keys(), 2):
             char_pair = "[%s] : [%s]" % (self.dec_dict[i], self.dec_dict[j])
-            if char_pair == "[-] : [g]":
-                print("breakpoint")
             prob_i = marginal_probs_rows[i]
             prob_j = marginal_probs_cols[j]
             prob_i_j = probs[i, j]

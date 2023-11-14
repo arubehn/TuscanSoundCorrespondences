@@ -1,7 +1,8 @@
 from lingpy import *
 from collections import defaultdict
+import pandas as pd
 
-
+"""
 data = Wordlist.from_cldf("resources/data/ALT/cldf/Wordlist-metadata.json")
 
 segments = defaultdict(list)
@@ -19,3 +20,9 @@ for cogset in segments.values():
 
     print(msa)
     print("\n" + 100 * "=" + "\n")
+"""
+
+
+df = pd.read_csv("resources/data/ALT/raw/ALT-standardized_forms.csv", header=0, index_col=0)
+
+print(df.loc["fragola"]["207 Talamone"])
