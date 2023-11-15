@@ -1,1 +1,1 @@
-from shibboleth.shibboleths import ShibbolethCalculator
+from shibboleth.calculate import ShibbolethCalculator

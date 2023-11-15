@@ -1,0 +1,7 @@
+ID	PARAMETER_ID	CONCEPT	DOCULECT	LANGUAGE_NAME	VALUE	FORM	TOKENS	GLOTTOLOG	CONCEPTICON	LATITUDE	LONGITUDE	COGNACY	COGID	ALIGNMENT
+10000	1001	bischero	101	PieveSantoStefano		artev	a r t e v						1	a r t e v
+10001	1001	bischero	102	Anghiari		artev	a r t e v						1	a r t e v
+10002	1001	bischero	103	Sansepolcro		artev	a r t e v						1	a r t e v
+10003	1001	bischero	104	BadiaTedalda		aldiv	a l d i v						1	a l d i v
+10004	1001	bischero	105	Sestino		asdef	a s d e f						1	a s d e f
+10005	1001	bischero	106	Antignano		asdof	a s d o						1	a s d o -

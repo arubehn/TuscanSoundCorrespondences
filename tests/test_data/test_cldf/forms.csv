@@ -1,7 +1,7 @@
 ID,Language_ID,Parameter_ID,Form,Segments,Comment,Source
-10000,101,1001,ate,a r t e v,,
-10001,102,1001,ate,a r t e v,,
-10002,103,1001,ate,a r t e v,,
-10003,104,1001,adi,a l d i v,,
-10004,105,1001,ade,a s d e f,,
-10005,106,1001,ado,a s d o f,,
+10000,101,1001,artev,a r t e v,,
+10001,102,1001,artev,a r t e v,,
+10002,103,1001,artev,a r t e v,,
+10003,104,1001,aldiv,a l d i v,,
+10004,105,1001,asdef,a s d e f,,
+10005,106,1001,asdof,a s d o,,

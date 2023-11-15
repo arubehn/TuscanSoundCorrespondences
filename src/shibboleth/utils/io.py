@@ -1,5 +1,16 @@
-import numpy as np
-from pycldf import Dataset
+from lingpy import Wordlist
+from os import path
+
+
+def load_data(data_fp):
+    data_fp = path.join(data_fp)
+
+    try:
+        data = Wordlist(data_fp)
+    except:
+        data = Wordlist.from_cldf(data_fp)
+
+    return data
 
 
 def read_areas_from_file(filename):
@@ -13,60 +24,12 @@ def read_areas_from_file(filename):
 
     with open(filename) as f:
         for line in f:
-            if not line:
+            if not line.strip():
                 continue
             site, area = line.strip().split()
             areas_from_file[int(site)] = int(area)
 
     return areas_from_file
-
-
-def read_pmi_scores(fp):
-    """
-    reads previously inferred PMI scores for sound pairs from a tab-separated file,
-    where the first two columns represent the sound pair and the third column contains the score.
-    :param fp: the path to the file to read from
-    :return: a tuple of an encoding dictionary (sound -> int), a decoding dictionary (int -> sound),
-                and the scores represented as a 2d numpy matrix.
-    """
-    enc_dict = {}
-    dec_dict = {}
-
-    scores_dict = {}
-
-    with open(fp) as f:
-        for line in f:
-            fields = line.strip().split()
-            if fields[0] == "#" or fields[1] == "#":
-                continue
-            s1 = fields[0]
-            s2 = fields[1]
-            score = float(fields[2])
-            if s1 not in enc_dict:
-                idx = len(enc_dict)
-                enc_dict[s1] = idx
-                dec_dict[idx] = s1
-            if s2 not in enc_dict:
-                idx = len(enc_dict)
-                enc_dict[s2] = idx
-                dec_dict[idx] = s2
-            scores_dict[(s1, s2)] = score
-
-    score_matrix = np.zeros((len(enc_dict), len(enc_dict)))
-    for pair, score in scores_dict.items():
-        s1, s2 = pair
-        score_matrix[enc_dict[s1], enc_dict[s2]] = score
-
-    return enc_dict, dec_dict, score_matrix
-
-
-def load_cldf_data(cldf_meta_fp):
-    data = Dataset.from_metadata(cldf_meta_fp)
-    forms = list(data["FormTable"])
-    params = list(data["ParameterTable"])
-    sites = list(data["LanguageTable"])
-
-    return forms, params, sites
 
 
 def write_results_to_file(fp, charac, repr, dist, frequencies, threshold=0):
