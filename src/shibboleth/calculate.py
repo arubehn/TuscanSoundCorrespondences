@@ -1,16 +1,17 @@
-import pandas as pd
 import numpy as np
 import re
-from itertools import product, permutations, combinations_with_replacement
 import math
-from shibboleth.utils.io import *
+from itertools import product, permutations, combinations_with_replacement
 from lingpy import Wordlist, Multiple, Alignments
 from collections import defaultdict
+from tqdm import tqdm
+
+from shibboleth.utils.io import *
 
 
 # TODO re-integrate function for caching confusion matrices
 class ShibbolethCalculator(object):
-    def __init__(self, varieties, data_fp, skip_concepts=None, skip_sites=None):
+    def __init__(self, varieties, data_fp, skip_concepts=None, skip_sites=None, realign=False):
         """
         initialize the calculator class; defining the cluster of varieties in question,
         loading in the lexical data, and providing a similarity matrix over all sounds for constructing alignments.
@@ -37,10 +38,9 @@ class ShibbolethCalculator(object):
         # TODO enable passing down different matching strategies
         self.varieties = []
         for var_in_data in self.data.cols:
-            for given_var in varieties:
-                if var_in_data.startswith(given_var):
-                    self.varieties.append(var_in_data)
-                    continue
+            id = var_in_data.split("_")[0]
+            if id in varieties:
+                self.varieties.append(var_in_data)
 
         # assign an integer id to each sound and keep track of the global frequencies of each sound
         self.frequencies = defaultdict(int)
@@ -66,6 +66,10 @@ class ShibbolethCalculator(object):
         self.ext_conf_mat = np.zeros(shape=(alphabet_size, alphabet_size), dtype=int)
         self.cross_conf_mat = np.zeros(shape=(alphabet_size, alphabet_size), dtype=int)
 
+        # optionally construct alignments
+        if realign:
+            self.align()
+
         # populate those confusion matrices by counting correspondences
         self.count_phonetic_correspondences()
 
@@ -73,7 +77,7 @@ class ShibbolethCalculator(object):
         """
         construct multiple alignments for all cognate sets.
         """
-        self.data.renumber("concept", "cogid")
+        self.data.renumber("concept", "cogid", override=True)
         alms = Alignments(self.data, ref="cogid", transcription="tokens")
         alms.align()
         self.data = alms
@@ -91,7 +95,7 @@ class ShibbolethCalculator(object):
             raise ValueError
 
         # iterate over concepts (=cognate sets)
-        for concept in self.data.rows:
+        for concept in tqdm(self.data.rows, desc="Counting phonetic correspondences..."):
             if concept in self.skip_concepts:
                 continue
             # get all form IDs corresponding to the concept
@@ -162,6 +166,8 @@ class ShibbolethCalculator(object):
                 if normalize:
                     dist = dist / (- math.log(prob_i_j))
                 dist_per_combination[char_pair] = dist
+            else:
+                dist_per_combination[char_pair] = 0
 
         # subtract PMI value for inverted relation; filter out correspondences with negative values
         dist_values = {}

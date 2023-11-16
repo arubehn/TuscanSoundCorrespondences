@@ -4,7 +4,7 @@ import pytest
 
 @pytest.fixture
 def calculator(test_data):
-    varieties = ["101", "102", "103"]
+    varieties = ["101", "102", "104"]
     data_fp = test_data / "test_cldf/Wordlist-metadata.json"
 
     sc = ShibbolethCalculator(varieties, data_fp)
@@ -35,3 +35,13 @@ def test_metrics(calculator):
     assert charac["[r] : [s]"] == pytest.approx(0.827, 0.001)
     assert (charac["[e] : [i]"] == charac["[e] : [o]"] == charac["[r] : [l]"] == charac["[v] : [-]"]
             == pytest.approx(0.661, 0.001))
+
+
+def test_symmetricity(calculator, test_data):
+    calculator2 = ShibbolethCalculator(["103", "105", "106"], test_data / "test_cldf/Wordlist-metadata.json")
+
+    charac, _, _ = calculator.calculate_metrics(normalize=True)
+    charac2, _, _ = calculator2.calculate_metrics(normalize=True)
+
+    assert charac["[r] : [s]"] == charac2["[s] : [r]"]
+    assert charac["[e] : [i]"] == charac2["[i] : [e]"]

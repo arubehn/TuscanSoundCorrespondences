@@ -32,6 +32,16 @@ def read_areas_from_file(filename):
     return areas_from_file
 
 
+def read_cluster_file(filename):
+    """
+    reads in sites for a user-defined cluster stored in a comma-separated file.
+    :param filename: the path to the file to read from
+    :return: a list of varieties defined to be in the cluster
+    """
+    with open(filename) as f:
+        return f.read().split(",")
+
+
 def write_results_to_file(fp, charac, repr, dist, frequencies, threshold=0):
     """
     write the results to a given file, sorted by characteristicness in descending order.

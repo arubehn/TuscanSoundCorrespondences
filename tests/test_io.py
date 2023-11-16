@@ -45,7 +45,7 @@ def test_write_results_to_file(test_data):
         ref = f.read()
 
     # re-calculate the results
-    varieties = ["101", "102", "103"]
+    varieties = ["101", "102", "104"]
     data_fp = test_data / "test_cldf/Wordlist-metadata.json"
 
     sc = ShibbolethCalculator(varieties, data_fp)

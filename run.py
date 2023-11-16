@@ -1,6 +1,7 @@
 from shibboleth.calculate import ShibbolethCalculator
-from shibboleth.utils.io import write_results_to_file
+from shibboleth.utils.io import write_results_to_file, read_cluster_file
 from os import path
+from glob import glob
 
 
 """
@@ -8,18 +9,29 @@ from os import path
 - check the -[V]lo suffixes
 """
 
-# test run
-with open("resources/site_clusters/gianelli_savoia_1.txt") as f:
-    sites = f.read().split(",")
 
+clusters_dir = path.join("resources/site_clusters")
+results_dir = path.join("resources/results")
 data_fp = path.join("resources/data/alt.tsv")
 
-sc = ShibbolethCalculator(sites, data_fp, skip_sites=["225_italiano"])
-sc.count_phonetic_correspondences()
-charac, repr, dist = sc.calculate_metrics(normalize=True)
+for cluster_file in glob("resources/site_clusters/*.txt"):
+    # read in defined clusters
+    sites = read_cluster_file(path.join(cluster_file))
+    cluster_name = cluster_file.split("/")[-1].replace(".txt", "")
 
-out_fp = path.join("resources/results/TEST_NEW_1.txt")
-write_results_to_file(out_fp, charac, repr, dist, sc.get_frequencies())
+    if not cluster_name.startswith("gianelli"):
+        continue
 
-out_fp_filtered = path.join("resources/results/TEST_NEW_1_FILTERED.txt")
-write_results_to_file(out_fp_filtered, charac, repr, dist, sc.get_frequencies(), threshold=50)
+    # calculate metrics
+    sc = ShibbolethCalculator(sites, data_fp, skip_sites=["225_italiano"], realign=False)
+    sc.count_phonetic_correspondences()
+    charac, repr, dist = sc.calculate_metrics(normalize=True)
+    freq = sc.get_frequencies()
+
+    # write metrics to file
+    out_fp = path.join(f"resources/results/all/{cluster_name}.txt")
+    write_results_to_file(out_fp, charac, repr, dist, freq)
+
+    # filter out infrequent sounds and write filtered results to file
+    out_fp_filtered = path.join(f"resources/results/filtered/{cluster_name}.txt")
+    write_results_to_file(out_fp_filtered, charac, repr, dist, sc.get_frequencies(), threshold=50)
