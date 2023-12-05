@@ -48,10 +48,3 @@ def write_metrics_to_file(fp, metrics, delimiter="\t"):
             concept_coverage = str(metrics[sound]["concept_coverage"])
             site_coverage = str(metrics[sound]["site_coverage"])
             f.write(delimiter.join([sound, frequency, concept_coverage, site_coverage]) + "\n")
-
-
-if __name__ == "__main__":
-    wl = Wordlist(path.join("../../../resources/data/alt.tsv"))
-    metrics = sound_metrics(wl, skip_sites=["225_italiano"])
-    print(metrics)
-    write_metrics_to_file(path.join("../../../resources/data/sound_metrics.tsv"), metrics)
