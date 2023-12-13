@@ -109,7 +109,8 @@ class ShibbolethCalculator(object):
                 site1 = form1[site_idx]
                 site2 = form2[site_idx]
 
-                if site1 in self.skip_sites or site2 in self.skip_sites:
+                if (site1 in self.skip_sites or site2 in self.skip_sites or
+                    site1.split("_")[0] in self.skip_sites or site2.split("_")[0] in self.skip_sites):
                     continue
 
                 # retrieve the confusion matrix to write to

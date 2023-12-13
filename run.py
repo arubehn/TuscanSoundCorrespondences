@@ -38,3 +38,22 @@ for cluster_file in glob("resources/site_clusters/*.txt"):
     # filter out infrequent sounds and write filtered results to file
     out_fp_filtered = path.join(f"resources/results/filtered/{cluster_name}.tsv")
     write_results_to_file(out_fp_filtered, charac, repr, dist, sc.get_frequencies(), threshold=50)
+
+
+# compare cluster 2 to 3/4, excluding 1.
+sites = read_cluster_file(path.join("resources/site_clusters/gianelli_savoia_3_4.txt"))
+excluded = read_cluster_file("resources/site_clusters/gianelli_savoia_1.txt")
+excluded.append("225_italiano")
+
+# calculate metrics
+sc = ShibbolethCalculator(sites, data_fp, skip_sites=excluded, realign=False)
+charac, repr, dist = sc.calculate_metrics(normalize=True)
+freq = sc.get_frequencies()
+
+# write metrics to file
+out_fp = path.join(f"resources/results/all/gianelli_savoia_3_vs_2.tsv")
+write_results_to_file(out_fp, charac, repr, dist, freq)
+
+# filter out infrequent sounds and write filtered results to file
+out_fp_filtered = path.join(f"resources/results/filtered/gianelli_savoia_3_vs_2.tsv")
+write_results_to_file(out_fp_filtered, charac, repr, dist, sc.get_frequencies(), threshold=50)
