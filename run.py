@@ -28,7 +28,6 @@ for cluster_file in glob("resources/site_clusters/*.txt"):
 
     # calculate metrics
     sc = ShibbolethCalculator(sites, data_fp, skip_sites=["225_italiano"], realign=False)
-    sc.count_phonetic_correspondences()
     charac, repr, dist = sc.calculate_metrics(normalize=True)
     freq = sc.get_frequencies()
 
