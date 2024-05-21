@@ -6,12 +6,6 @@ from os import path
 from glob import glob
 
 
-"""
-- form 46087 contains morphological variation and should be ignored -- but how?
-- check the -[V]lo suffixes
-"""
-
-
 clusters_dir = path.join("resources/site_clusters")
 results_dir = path.join("resources/results")
 data_fp = path.join("resources/data/alt.tsv")
