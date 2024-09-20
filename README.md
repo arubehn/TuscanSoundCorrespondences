@@ -48,7 +48,7 @@ If your data already Multiple Sequence Alignments (MSA), those are used by defau
 
 ## Dataset
 
-The dataset used in this study is derived from the Atlante Lessicale Toscano (ALT). [5] Our derived dataset was published within the Lexibank collection under https://github.com/lexibank/alt/. This repository contains a compressed version derived from the Lexibank dataset (/resources/data/alt.tsv) -- for details on how this file was produced, please check the README in the resources/data folder.
+The dataset used in this study is derived from the Atlante Lessicale Toscano (ALT). [5] Our derived dataset was published within the Lexibank collection under https://github.com/lexibank/alt/. This repository contains a condensed version of this Lexibank dataset ([/resources/data/alt.tsv](/resources/data/alt.tsv)) -- for details on how this file was produced, please check the [README](/resources/data/README.md) in the resources/data folder.
 
 ## References
 
