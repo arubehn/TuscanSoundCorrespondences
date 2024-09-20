@@ -1,6 +1,4 @@
 from collections import defaultdict
-from os import path
-from lingpy import Wordlist
 
 
 def sound_metrics(wl, skip_concepts=None, skip_sites=None, skip_forms=None):
